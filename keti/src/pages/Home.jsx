@@ -4,19 +4,26 @@ import { useNavigate } from "react-router-dom";
 const CATEGORIES = ["All", "Sports", "Music", "Corporate"];
 
 const UPCOMING = [
-  { id: 1, emoji: "🏆", name: "KPL Finals",      date: "Aug 12 · Nyayo Stadium",  price: "KES 800",   rising: true  },
-  { id: 2, emoji: "🎵", name: "Sauti Sol Live",   date: "Sep 3 · KICC",            price: "KES 1,200", rising: true  },
-  { id: 3, emoji: "🏃", name: "Nairobi Marathon", date: "Oct 19 · City Centre",    price: "KES 500",   rising: false },
+  { id: 1, emoji: "🏆", name: "KPL Finals",      date: "Aug 12 · Nyayo Stadium",  price: "KES 800",   rising: true,  category: "Sports"    },
+  { id: 2, emoji: "🎵", name: "Sauti Sol Live",   date: "Sep 3 · KICC",            price: "KES 1,200", rising: true,  category: "Music"     },
+  { id: 3, emoji: "🏃", name: "Nairobi Marathon", date: "Oct 19 · City Centre",    price: "KES 500",   rising: false, category: "Sports"    },
 ];
 
 const AFCON_MATCHES = [
-  { id: 4, emoji: "⚽", name: "Kenya vs Egypt",   date: "Jun 15 · Kasarani", price: "KES 2,500", rising: true, hot: true },
-  { id: 5, emoji: "⚽", name: "Morocco vs Ghana", date: "Jun 16 · Kasarani", price: "KES 2,000", rising: true, hot: false },
+  { id: 4, emoji: "⚽", name: "Kenya vs Egypt",   date: "Jun 15 · Kasarani", price: "KES 2,500", rising: true, hot: true,  category: "Sports" },
+  { id: 5, emoji: "⚽", name: "Morocco vs Ghana", date: "Jun 16 · Kasarani", price: "KES 2,000", rising: true, hot: false, category: "Sports" },
 ];
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("All");
   const navigate = useNavigate();
+
+  const matches = (ev) => activeTab === "All" || ev.category === activeTab;
+  const upcoming = UPCOMING.filter(matches);
+  const afcon = AFCON_MATCHES.filter(matches);
+
+  const goToEvent = (ev) =>
+    navigate("/seatmap", { state: { eventId: ev.id, eventName: ev.name } });
 
   return (
     <div style={styles.wrap}>
@@ -55,26 +62,37 @@ export default function Home() {
           <div style={styles.heroSub}>🔥 Featured Event</div>
           <div style={styles.heroTitle}>AFCON 2027</div>
           <div style={styles.heroMeta}>📍 Kasarani Stadium, Nairobi · Jun 2027</div>
-          <button style={styles.heroBtn} onClick={() => navigate("/seatmap")}>
+          <button
+            style={styles.heroBtn}
+            onClick={() => goToEvent({ id: 4, name: "Kenya vs Egypt" })}
+          >
             Get Tickets →
           </button>
         </div>
 
         {/* ── Upcoming events ── */}
         <div style={styles.sectionTitle}>Upcoming in Nairobi</div>
-        <div style={styles.cardRow}>
-          {UPCOMING.map(ev => (
-            <EventCard key={ev.id} event={ev} onClick={() => navigate("/seatmap")} />
-          ))}
-        </div>
+        {upcoming.length === 0 ? (
+          <div style={styles.empty}>No upcoming events in {activeTab}.</div>
+        ) : (
+          <div style={styles.cardRow}>
+            {upcoming.map(ev => (
+              <EventCard key={ev.id} event={ev} onClick={() => goToEvent(ev)} />
+            ))}
+          </div>
+        )}
 
         {/* ── AFCON matches ── */}
         <div style={styles.sectionTitle}>AFCON Group Stages</div>
-        <div style={styles.cardRow}>
-          {AFCON_MATCHES.map(ev => (
-            <EventCard key={ev.id} event={ev} onClick={() => navigate("/seatmap")} />
-          ))}
-        </div>
+        {afcon.length === 0 ? (
+          <div style={styles.empty}>No matches in {activeTab}.</div>
+        ) : (
+          <div style={styles.cardRow}>
+            {afcon.map(ev => (
+              <EventCard key={ev.id} event={ev} onClick={() => goToEvent(ev)} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -133,6 +151,7 @@ const styles = {
 
   sectionTitle: { fontSize: 13, fontWeight: 600, color: "#1e293b", padding: "14px 16px 8px" },
   cardRow: { display: "flex", gap: 10, padding: "0 16px 4px", overflowX: "auto" },
+  empty: { fontSize: 12, color: "#94a3b8", padding: "0 16px 4px" },
 
   eventCard: { minWidth: 150, background: "#fff", borderRadius: 12, border: "0.5px solid #e2e8f0", overflow: "hidden", flexShrink: 0, cursor: "pointer" },
   eventCardImg: { height: 72, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 },
