@@ -1,134 +1,135 @@
-import React, { useState, useEffect } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import { useNavigate } from "react-router-dom";
 
-const TICKET_ID = 'TKT-AFCON-2027-C14';
-const WINDOW_MS = 30000;
-
-// Stable per-window token: same value for any time within the same 30s window
-function tokenForWindow(windowStart) {
-  // Deterministic-ish per window so it's stable within the window without storing state.
-  // Seeded from the window value; regenerated only when the window changes.
-  let seed = windowStart;
-  let hex = '';
-  for (let i = 0; i < 6; i++) {
-    seed = (seed * 9301 + 49297) % 233280;
-    hex += Math.floor((seed / 233280) * 16).toString(16);
-  }
-  return hex;
-}
-
-function buildQrValue() {
-  const windowStart = Math.floor(Date.now() / WINDOW_MS) * WINDOW_MS;
-  const token = tokenForWindow(windowStart);
-  return `KETI-${TICKET_ID}-${windowStart}-${token}`;
-}
-
-function secondsRemaining() {
-  const now = Date.now();
-  const windowStart = Math.floor(now / WINDOW_MS) * WINDOW_MS;
-  return Math.ceil((windowStart + WINDOW_MS - now) / 1000);
-}
-
-const pastTickets = [
-  { id: 1, name: 'CHAN 2024 — Group Stage', date: '12 Aug 2024', seat: 'B22' },
-  { id: 2, name: 'Harambee Stars Friendly', date: '03 Jun 2024', seat: 'A09' },
-  { id: 3, name: 'Tusker FC vs Gor Mahia', date: '21 Apr 2024', seat: 'D44' },
-];
+// Supports BOTH Vite and CRA. DELETE the branch you don't use.
+const FUNCTIONS_URL = process.env.REACT_APP_SUPABASE_FUNCTIONS_URL;
+console.log("FUNCTIONS_URL:", FUNCTIONS_URL);
+const TICKET_REF = "TKT-AFCON-2027-C14";
+const PHONE = "+254712345678";
 
 export default function Wallet() {
   const navigate = useNavigate();
-  const [qrValue, setQrValue] = useState(() => buildQrValue());
-  const [countdown, setCountdown] = useState(() => secondsRemaining());
+  const [token, setToken] = useState(null);
+  const [countdown, setCountdown] = useState(30);
   const [visible, setVisible] = useState(true);
+  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const timerRef = useRef(null);
 
-  useEffect(() => {
-    const tick = setInterval(() => {
-      const remaining = secondsRemaining();
-      setCountdown(remaining);
+  const fetchToken = useCallback(async () => {
+    try {
+      const res = await fetch(`${FUNCTIONS_URL}/generate-qr-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_ref: TICKET_REF, phone: PHONE }),
+      });
+      if (!res.ok) throw new Error("request_failed");
+      const data = await res.json();
+      if (!data.token) throw new Error("no_token");
 
-      // Fade out just before rotation, then swap value and fade back in.
-      if (remaining <= 1) {
-        setVisible(false);
-        setTimeout(() => {
-          setQrValue(buildQrValue());
-          setVisible(true);
-        }, 300);
-      }
-    }, 1000);
+      setToken(data.token);
+      setVisible(true);
+      setStatus("ready");
 
-    return () => clearInterval(tick);
+      const secs = Math.max(1, Math.ceil(data.expires_in_ms / 1000));
+      setCountdown(secs);
+
+      // Schedule the fade + refetch exactly when the server window ends.
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        setVisible(false); // fade out
+        setTimeout(fetchToken, 300); // swap after fade
+      }, data.expires_in_ms);
+    } catch {
+      setStatus("error");
+      clearTimeout(timerRef.current);
+    }
   }, []);
 
-  const countdownColor = countdown <= 5 ? '#EF4444' : '#94A3B8';
+  useEffect(() => {
+    fetchToken();
+    console.log("URL:", process.env.REACT_APP_SUPABASE_FUNCTIONS_URL);
+    return () => clearTimeout(timerRef.current);
+  }, [fetchToken]);
+
+  // 1s countdown tick (display only; the refetch is driven by the timeout above)
+  useEffect(() => {
+    if (status !== "ready") return;
+    const id = setInterval(() => {
+      setCountdown((c) => (c > 0 ? c - 1 : 0));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [status, token]);
+
+  const countdownColor = countdown <= 5 ? "#EF4444" : "#94A3B8";
 
   return (
     <div style={styles.page}>
       <h1 style={styles.heading}>My Wallet</h1>
 
-      {/* Active ticket card */}
       <div style={styles.card}>
-        {/* Top row: event name + points badge */}
         <div style={styles.cardTop}>
           <div>
-            <div style={styles.eventName}>AFCON 2027</div>
-            <div style={styles.eventSub}>Kenya vs Morocco</div>
+            <div style={styles.eventName}>Kenya vs Egypt</div>
+            <div style={styles.eventSub}>AFCON 2027</div>
           </div>
           <div style={styles.pointsBadge}>⭐ 340 pts</div>
         </div>
 
-        {/* Event details grid */}
         <div style={styles.detailsGrid}>
-          <div style={styles.detailItem}>
-            <div style={styles.detailLabel}>Date</div>
-            <div style={styles.detailValue}>18 Jan 2027</div>
-          </div>
-          <div style={styles.detailItem}>
-            <div style={styles.detailLabel}>Time</div>
-            <div style={styles.detailValue}>20:00 EAT</div>
-          </div>
-          <div style={styles.detailItem}>
-            <div style={styles.detailLabel}>Seat</div>
-            <div style={styles.detailValue}>C14</div>
-          </div>
-          <div style={styles.detailItem}>
-            <div style={styles.detailLabel}>Zone</div>
-            <div style={styles.detailValue}>West Stand</div>
-          </div>
+          <Detail label="Date" value="15 Jun 2027" />
+          <Detail label="Time" value="20:00 EAT" />
+          <Detail label="Seat" value="C-14" />
+          <Detail label="Zone" value="VIP Gold" />
         </div>
 
-        {/* Dashed divider */}
         <div style={styles.divider} />
 
         {/* QR section */}
         <div style={styles.qrSection}>
-          <div
-            style={{
-              ...styles.qrBox,
-              opacity: visible ? 1 : 0,
-              transition: 'opacity 0.3s ease',
-            }}
-          >
-            <QRCodeSVG value={qrValue} size={180} level="M" />
-          </div>
-          <div style={{ ...styles.countdown, color: countdownColor }}>
-            Refreshes in {countdown}s
-          </div>
+          {status === "loading" && <div style={styles.spinner} aria-label="Loading" />}
+
+          {status === "error" && (
+            <div style={styles.errorBox}>
+              <div style={styles.errorText}>Couldn't load your ticket QR.</div>
+              <button
+                style={styles.retryBtn}
+                onClick={() => {
+                  setStatus("loading");
+                  fetchToken();
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {status === "ready" && token && (
+            <>
+              <div
+                style={{
+                  ...styles.qrBox,
+                  opacity: visible ? 1 : 0,
+                  transition: "opacity 0.3s ease",
+                }}
+              >
+                <QRCodeSVG value={token} size={180} level="M" />
+              </div>
+              <div style={{ ...styles.countdown, color: countdownColor }}>
+                Refreshes in {countdown}s
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Transfer button */}
-        <button
-          style={styles.transferBtn}
-          onClick={() => navigate('/dashboard')}
-        >
+        <button style={styles.transferBtn} onClick={() => navigate("/dashboard")}>
           Transfer Ticket
         </button>
       </div>
 
-      {/* Past tickets */}
       <div style={styles.pastSection}>
         <h2 style={styles.pastHeading}>Past Tickets</h2>
-        {pastTickets.map((t) => (
+        {PAST.map((t) => (
           <div key={t.id} style={styles.pastItem}>
             <div>
               <div style={styles.pastName}>{t.name}</div>
@@ -138,137 +139,50 @@ export default function Wallet() {
           </div>
         ))}
       </div>
+
+      <style>{`@keyframes ketispin {to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }
 
+function Detail({ label, value }) {
+  return (
+    <div>
+      <div style={styles.detailLabel}>{label}</div>
+      <div style={styles.detailValue}>{value}</div>
+    </div>
+  );
+}
+
+const PAST = [
+  { id: 1, name: "CHAN 2024 — Group Stage", date: "12 Aug 2024", seat: "B22" },
+  { id: 2, name: "Harambee Stars Friendly", date: "03 Jun 2024", seat: "A09" },
+];
+
 const styles = {
-  page: {
-    padding: '20px',
-    paddingBottom: '90px',
-    maxWidth: '480px',
-    margin: '0 auto',
-  },
-  heading: {
-    fontSize: '24px',
-    fontWeight: 700,
-    marginBottom: '20px',
-    color: '#0F172A',
-  },
-  card: {
-    background: '#0F172A',
-    borderRadius: '20px',
-    padding: '24px',
-    color: '#fff',
-    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.3)',
-  },
-  cardTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '20px',
-  },
-  eventName: {
-    fontSize: '20px',
-    fontWeight: 700,
-  },
-  eventSub: {
-    fontSize: '14px',
-    color: '#94A3B8',
-    marginTop: '4px',
-  },
-  pointsBadge: {
-    background: 'rgba(14, 165, 233, 0.15)',
-    color: '#0EA5E9',
-    padding: '6px 12px',
-    borderRadius: '999px',
-    fontSize: '13px',
-    fontWeight: 600,
-    whiteSpace: 'nowrap',
-  },
-  detailsGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '16px',
-    marginBottom: '20px',
-  },
-  detailItem: {},
-  detailLabel: {
-    fontSize: '12px',
-    color: '#64748B',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-  },
-  detailValue: {
-    fontSize: '15px',
-    fontWeight: 600,
-    marginTop: '4px',
-  },
-  divider: {
-    borderTop: '2px dashed #334155',
-    margin: '20px 0',
-  },
-  qrSection: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-  },
-  qrBox: {
-    background: '#fff',
-    borderRadius: '12px',
-    padding: '12px',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  countdown: {
-    marginTop: '12px',
-    fontSize: '13px',
-    fontWeight: 600,
-  },
-  transferBtn: {
-    width: '100%',
-    marginTop: '24px',
-    padding: '14px',
-    background: '#1A56DB',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '12px',
-    fontSize: '15px',
-    fontWeight: 600,
-    cursor: 'pointer',
-  },
-  pastSection: {
-    marginTop: '28px',
-  },
-  pastHeading: {
-    fontSize: '18px',
-    fontWeight: 700,
-    marginBottom: '16px',
-    color: '#0F172A',
-  },
-  pastItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '14px 16px',
-    background: '#F1F5F9',
-    borderRadius: '12px',
-    marginBottom: '10px',
-  },
-  pastName: {
-    fontSize: '14px',
-    fontWeight: 600,
-    color: '#0F172A',
-  },
-  pastDate: {
-    fontSize: '12px',
-    color: '#64748B',
-    marginTop: '2px',
-  },
-  pastSeat: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: '#1A56DB',
-  },
+  page: { padding: 20, paddingBottom: 90, maxWidth: 480, margin: "0 auto" },
+  heading: { fontSize: 24, fontWeight: 700, marginBottom: 20, color: "#0F172A" },
+  card: { background: "#0F172A", borderRadius: 20, padding: 24, color: "#fff", boxShadow: "0 10px 30px rgba(15,23,42,0.3)" },
+  cardTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 },
+  eventName: { fontSize: 20, fontWeight: 700 },
+  eventSub: { fontSize: 14, color: "#94A3B8", marginTop: 4 },
+  pointsBadge: { background: "rgba(14,165,233,0.15)", color: "#0EA5E9", padding: "6px 12px", borderRadius: 999, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" },
+  detailsGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 },
+  detailLabel: { fontSize: 12, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.5 },
+  detailValue: { fontSize: 15, fontWeight: 600, marginTop: 4 },
+  divider: { borderTop: "2px dashed #334155", margin: "20px 0" },
+  qrSection: { display: "flex", flexDirection: "column", alignItems: "center", minHeight: 220, justifyContent: "center" },
+  qrBox: { background: "#fff", borderRadius: 12, padding: 12, display: "flex" },
+  countdown: { marginTop: 12, fontSize: 13, fontWeight: 600 },
+  spinner: { width: 40, height: 40, border: "4px solid #334155", borderTopColor: "#0EA5E9", borderRadius: "50%", animation: "ketispin 0.8s linear infinite" },
+  errorBox: { textAlign: "center" },
+  errorText: { fontSize: 13, color: "#94A3B8", marginBottom: 12 },
+  retryBtn: { background: "#1A56DB", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  transferBtn: { width: "100%", marginTop: 24, padding: 14, background: "#1A56DB", color: "#fff", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: "pointer" },
+  pastSection: { marginTop: 28 },
+  pastHeading: { fontSize: 18, fontWeight: 700, marginBottom: 16, color: "#0F172A" },
+  pastItem: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", background: "#F1F5F9", borderRadius: 12, marginBottom: 10 },
+  pastName: { fontSize: 14, fontWeight: 600, color: "#0F172A" },
+  pastDate: { fontSize: 12, color: "#64748B", marginTop: 2 },
+  pastSeat: { fontSize: 13, fontWeight: 600, color: "#1A56DB" },
 };
